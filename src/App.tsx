@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
+import { TrendingDown, TrendingUp, Calculator, BarChart3, Share2, Sparkles } from "lucide-react";
 
 type Result = {
+  symbol: string;
+  sellPrice: number;
   currentPrice: number;
   currentValue: number;
   sellValue: number;
@@ -46,14 +49,14 @@ const negativeRemarks = [
   "虽然没赚到后续，但也没被反杀。",
 ];
 
-const getRegretLevel = (returnRate: number): { level: string; emoji: string; color: string } => {
-  if (returnRate >= 5) return { level: "交易人生阴影", emoji: "😱", color: "#ff0000" };
-  if (returnRate >= 1) return { level: "心碎", emoji: "💔", color: "#ff4757" };
-  if (returnRate >= 0.5) return { level: "有点痛", emoji: "😢", color: "#ff6b6b" };
-  if (returnRate >= 0.2) return { level: "还好", emoji: "😌", color: "#ffa502" };
-  if (returnRate >= 0) return { level: "小遗憾", emoji: "😕", color: "#ffd43b" };
-  if (returnRate >= -0.2) return { level: "卖得不错", emoji: "😊", color: "#7bed9f" };
-  return { level: "明智之举", emoji: "🎉", color: "#2ed573" };
+const getRegretLevel = (returnRate: number): { level: string; Icon: React.ComponentType<{ style?: React.CSSProperties }>; color: string } => {
+  if (returnRate >= 5) return { level: "交易人生阴影", Icon: TrendingDown, color: "#ff0000" };
+  if (returnRate >= 1) return { level: "心碎", Icon: TrendingDown, color: "#ff4757" };
+  if (returnRate >= 0.5) return { level: "有点痛", Icon: TrendingDown, color: "#ff6b6b" };
+  if (returnRate >= 0.2) return { level: "还好", Icon: TrendingDown, color: "#ffa502" };
+  if (returnRate >= 0) return { level: "小遗憾", Icon: TrendingDown, color: "#ffd43b" };
+  if (returnRate >= -0.2) return { level: "卖得不错", Icon: TrendingUp, color: "#7bed9f" };
+  return { level: "明智之举", Icon: TrendingUp, color: "#2ed573" };
 };
 
 const getOpportunityHint = (diff: number) => {
@@ -101,6 +104,8 @@ export default function App() {
     const returnRate = diff / sellValue;
 
     setResult({
+      symbol,
+      sellPrice,
       currentPrice,
       currentValue,
       sellValue,
@@ -130,149 +135,190 @@ export default function App() {
     return pool[Math.floor(Math.random() * pool.length)];
   }, [result]);
 
+  const handleShare = async (result: Result, regretInfo: ReturnType<typeof getRegretLevel>) => {
+    const trendIcon = regretInfo.Icon === TrendingUp ? "📈" : "📉";
+    const shareText = `【早知道就不卖了】\n\n${result.symbol} 复盘报告\n${trendIcon} ${regretInfo.level}\n\n卖出价: $${result.sellPrice}\n现价: $${result.currentPrice.toFixed(2)}\n差额: ${result.diff >= 0 ? "+" : ""}$${result.diff.toFixed(2)}\n收益率: ${(result.returnRate * 100).toFixed(2)}%\n\n${remark}`;
+    
+    if (navigator.share) {
+      await navigator.share({
+        title: "早知道就不卖了",
+        text: shareText,
+      });
+    } else {
+      navigator.clipboard.writeText(shareText);
+      alert("报告已复制到剪贴板！");
+    }
+  };
+
   return (
     <div style={styles.container}>
       <div style={styles.card}>
-        <h1 style={styles.title}>📉 早知道就不卖了</h1>
-        <p style={styles.subtitle}>If I Held Calculator</p>
-        <p style={styles.subHint}>复盘不一定赚钱，但一定有故事。</p>
+        <div style={styles.leftPanel}>
+          <div style={styles.titleWrapper}>
+            <TrendingDown style={{ width: 32, height: 32, color: "#ef4444" }} />
+            <h1 style={styles.title}>早知道就不卖了</h1>
+          </div>
+          <p style={styles.subtitle}>If I Held Calculator</p>
+          <p style={styles.subHint}>复盘不一定赚钱，但一定有故事。</p>
 
-        <div style={styles.formGroup}>
-          <label htmlFor="stock-symbol" style={styles.label}>股票代码</label>
-          <select
-            id="stock-symbol"
-            value={symbol}
-            onChange={(e) => setSymbol(e.target.value)}
-            style={styles.select}
+          <div style={styles.formGroup}>
+            <label htmlFor="stock-symbol" style={styles.label}>股票代码</label>
+            <select
+              id="stock-symbol"
+              value={symbol}
+              onChange={(e) => setSymbol(e.target.value)}
+              style={styles.select}
+            >
+              {mockStocks.map((stock) => (
+                <option key={stock.symbol} value={stock.symbol}>
+                  {stock.symbol} - {stock.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={styles.formGroup}>
+            <label htmlFor="sell-quantity" style={styles.label}>卖出数量（股）</label>
+            <input
+              id="sell-quantity"
+              type="number"
+              value={quantity}
+              onChange={(e) => setQuantity(Math.max(1, Number(e.target.value)))}
+              style={styles.input}
+              min="1"
+            />
+          </div>
+
+          <div style={styles.formGroup}>
+            <label htmlFor="sell-price" style={styles.label}>卖出价格（美元）</label>
+            <input
+              id="sell-price"
+              type="number"
+              value={sellPrice}
+              onChange={(e) => setSellPrice(Math.max(0.01, Number(e.target.value)))}
+              style={styles.input}
+              min="0.01"
+              step="0.01"
+            />
+          </div>
+
+          <button
+            onClick={handleCalculate}
+            disabled={isLoading}
+            style={{
+              ...styles.button,
+              opacity: isLoading ? 0.85 : 1,
+              transform: isLoading ? "scale(0.99)" : "scale(1)",
+            }}
           >
-            {mockStocks.map((stock) => (
-              <option key={stock.symbol} value={stock.symbol}>
-                {stock.symbol} - {stock.name}
-              </option>
-            ))}
-          </select>
+            {isLoading ? (
+              <span>{loadingText}</span>
+            ) : (
+              <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                <Calculator style={{ width: 18, height: 18 }} />
+                计算如果没卖
+              </span>
+            )}
+          </button>
+
+          <p style={styles.sessionCount}>你今天已经复盘了 {calcCount} 次</p>
         </div>
 
-        <div style={styles.formGroup}>
-          <label htmlFor="sell-quantity" style={styles.label}>卖出数量（股）</label>
-          <input
-            id="sell-quantity"
-            type="number"
-            value={quantity}
-            onChange={(e) => setQuantity(Math.max(1, Number(e.target.value)))}
-            style={styles.input}
-            min="1"
-          />
-        </div>
-
-        <div style={styles.formGroup}>
-          <label htmlFor="sell-price" style={styles.label}>卖出价格（美元）</label>
-          <input
-            id="sell-price"
-            type="number"
-            value={sellPrice}
-            onChange={(e) => setSellPrice(Math.max(0.01, Number(e.target.value)))}
-            style={styles.input}
-            min="0.01"
-            step="0.01"
-          />
-        </div>
-
-        <button
-          onClick={handleCalculate}
-          disabled={isLoading}
-          style={{
-            ...styles.button,
-            opacity: isLoading ? 0.85 : 1,
-            transform: isLoading ? "scale(0.99)" : "scale(1)",
-          }}
-        >
-          {isLoading ? loadingText : "计算如果没卖"}
-        </button>
-
-        {result && (
-          <div style={styles.resultSection}>
-            <h2 style={styles.resultTitle}>结果分析 📊</h2>
-            <div style={{ ...styles.flavorBanner, backgroundColor: `${regretInfo?.color}20`, color: regretInfo?.color }}>
-              {regretInfo?.emoji} {remark}
-            </div>
-            
-            <div style={styles.resultGrid}>
-              <div style={styles.resultItem}>
-                <span style={styles.resultLabel}>当前价格</span>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <span style={styles.resultValue}>${result.currentPrice.toFixed(2)}</span>
-                  {result.isRealTime ? (
-                    <span style={styles.realTimeBadge}>实时</span>
-                  ) : (
-                    <span style={styles.fallbackBadge}>参考</span>
-                  )}
+        <div style={styles.rightPanel}>
+          {result ? (
+            <div style={styles.resultSection}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <BarChart3 style={{ width: 24, height: 24, color: "#2563eb" }} />
+                <h2 style={styles.resultTitle}>结果分析</h2>
+              </div>
+              <div style={{ ...styles.flavorBanner, backgroundColor: `${regretInfo?.color}20`, color: regretInfo?.color }}>
+                {regretInfo?.Icon && <regretInfo.Icon style={{ width: 18, height: 18, display: "inline", marginRight: 6 }} />} {remark}
+              </div>
+              
+              <div style={styles.resultGrid}>
+                <div style={styles.resultItem}>
+                  <span style={styles.resultLabel}>当前价格</span>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <span style={styles.resultValue}>${result.currentPrice.toFixed(2)}</span>
+                    {result.isRealTime ? (
+                      <span style={styles.realTimeBadge}>实时</span>
+                    ) : (
+                      <span style={styles.fallbackBadge}>参考</span>
+                    )}
+                  </div>
+                </div>
+                <div style={styles.resultItem}>
+                  <span style={styles.resultLabel}>卖出价值</span>
+                  <span style={styles.resultValue}>${result.sellValue.toFixed(2)}</span>
+                </div>
+                <div style={styles.resultItem}>
+                  <span style={styles.resultLabel}>现在价值</span>
+                  <span style={styles.resultValue}>${result.currentValue.toFixed(2)}</span>
                 </div>
               </div>
-              <div style={styles.resultItem}>
-                <span style={styles.resultLabel}>卖出价值</span>
-                <span style={styles.resultValue}>${result.sellValue.toFixed(2)}</span>
+
+              <div style={{ ...styles.diffBox, boxShadow: `inset 0 0 0 1px ${regretInfo?.color}40` }}>
+                <span style={styles.diffLabel}>差额</span>
+                <span style={{ ...styles.diffValue, color: regretInfo?.color }}>
+                  {result.diff >= 0 ? "+" : ""}${result.diff.toFixed(2)}
+                </span>
               </div>
-              <div style={styles.resultItem}>
-                <span style={styles.resultLabel}>现在价值</span>
-                <span style={styles.resultValue}>${result.currentValue.toFixed(2)}</span>
+
+              <div style={styles.returnRateBox}>
+                <span style={styles.returnLabel}>收益率</span>
+                <span style={{ ...styles.returnValue, color: regretInfo?.color }}>
+                  {(result.returnRate * 100).toFixed(2)}%
+                </span>
               </div>
-            </div>
 
-            <div style={{ ...styles.diffBox, boxShadow: `inset 0 0 0 1px ${regretInfo?.color}40` }}>
-              <span style={styles.diffLabel}>差额</span>
-              <span style={{ ...styles.diffValue, color: regretInfo?.color }}>
-                {result.diff >= 0 ? "+" : ""}${result.diff.toFixed(2)}
-              </span>
-            </div>
-
-            <div style={styles.returnRateBox}>
-              <span style={styles.returnLabel}>收益率</span>
-              <span style={{ ...styles.returnValue, color: regretInfo?.color }}>
-                {(result.returnRate * 100).toFixed(2)}%
-              </span>
-            </div>
-
-            <div style={styles.funStats}>
-              <div style={styles.funStatItem}>
-                <span style={styles.funStatLabel}>≈ 奶茶</span>
-                <span style={styles.funStatValue}>{opportunityHint?.milkTea} 杯</span>
+              <div style={styles.funStats}>
+                <div style={styles.funStatItem}>
+                  <span style={styles.funStatLabel}>≈ 奶茶</span>
+                  <span style={styles.funStatValue}>{opportunityHint?.milkTea} 杯</span>
+                </div>
+                <div style={styles.funStatItem}>
+                  <span style={styles.funStatLabel}>≈ 汉堡</span>
+                  <span style={styles.funStatValue}>{opportunityHint?.burgers} 个</span>
+                </div>
+                <div style={styles.funStatItem}>
+                  <span style={styles.funStatLabel}>≈ 电影票</span>
+                  <span style={styles.funStatValue}>{opportunityHint?.tickets} 张</span>
+                </div>
               </div>
-              <div style={styles.funStatItem}>
-                <span style={styles.funStatLabel}>≈ 汉堡</span>
-                <span style={styles.funStatValue}>{opportunityHint?.burgers} 个</span>
+
+              <div style={{ ...styles.regretBox, backgroundColor: regretInfo?.color + "20" }}>
+                {regretInfo?.Icon && <regretInfo.Icon style={{ width: 32, height: 32, marginRight: 8, color: regretInfo.color }} />}
+                <span style={{ ...styles.regretLevel, color: regretInfo?.color }}>
+                  {regretInfo?.level}
+                </span>
               </div>
-              <div style={styles.funStatItem}>
-                <span style={styles.funStatLabel}>≈ 电影票</span>
-                <span style={styles.funStatValue}>{opportunityHint?.tickets} 张</span>
-              </div>
-            </div>
 
-            <div style={{ ...styles.regretBox, backgroundColor: regretInfo?.color + "20" }}>
-              <span style={{ fontSize: "32px", marginRight: "8px" }}>
-                {regretInfo?.emoji}
-              </span>
-              <span style={{ ...styles.regretLevel, color: regretInfo?.color }}>
-                {regretInfo?.level}
-              </span>
-            </div>
-
-            <p style={styles.emotionText}>
-              {result.diff > 0 ? (
-                <span>😭 你少赚了 <strong>${result.diff.toFixed(2)}</strong>，相当于错过了</span>
-              ) : (
-                <span>😎 你卖得挺好，成功避免了 <strong>${Math.abs(result.diff).toFixed(2)}</strong> 的损失</span>
-              )}
-            </p>
-
-            {result.diff > 0 && result.diff > 5000 && (
-              <p style={styles.carJoke}>
-                🚗 这差不多是一辆特斯拉 Model S 的首付了...
+              <p style={styles.emotionText}>
+                {result.diff > 0 ? (
+                  <span><TrendingDown style={{ width: 18, height: 18, display: "inline", marginRight: 4, color: "#ef4444" }} /> 你少赚了 <strong>${result.diff.toFixed(2)}</strong>，相当于错过了</span>
+                ) : (
+                  <span><TrendingUp style={{ width: 18, height: 18, display: "inline", marginRight: 4, color: "#22c55e" }} /> 你卖得挺好，成功避免了 <strong>${Math.abs(result.diff).toFixed(2)}</strong> 的损失</span>
+                )}
               </p>
-            )}
-            <p style={styles.sessionCount}>你今天已经复盘了 {calcCount} 次</p>
-          </div>
-        )}
+
+            <button
+              onClick={() => handleShare(result, regretInfo!)}
+              style={styles.shareButton}
+            >
+              <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                <Share2 style={{ width: 16, height: 16 }} />
+                分享报告
+              </span>
+            </button>
+            </div>
+          ) : (
+            <div style={styles.emptyState}>
+              <Sparkles style={{ width: 64, height: 64, color: "#e5e7eb", marginBottom: 16 }} />
+              <h3 style={styles.emptyTitle}>输入数据开始计算</h3>
+              <p style={styles.emptyDesc}>填写左侧表单，看看如果你当时没卖会怎样</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -289,12 +335,41 @@ const styles: Record<string, React.CSSProperties> = {
   },
   card: {
     background: "#ffffff",
-    borderRadius: "20px",
-    padding: "40px",
+    borderRadius: "0",
+    padding: "0",
     width: "100%",
-    maxWidth: "480px",
-    boxShadow: "0 8px 32px rgba(0, 0, 0, 0.08)",
-    border: "1px solid rgba(0, 0, 0, 0.05)",
+    height: "100vh",
+    minHeight: "100vh",
+    boxShadow: "none",
+    border: "none",
+    display: "flex",
+    flexDirection: "row",
+  },
+  leftPanel: {
+    flex: 1,
+    padding: "60px 40px",
+    borderRight: "1px solid #e0e0e0",
+    display: "flex",
+    flexDirection: "column",
+    background: "linear-gradient(180deg, #f8fafc 0%, #ffffff 100%)",
+  },
+  rightPanel: {
+    flex: 1,
+    padding: "60px 40px",
+    overflowY: "auto",
+    maxHeight: "100vh",
+    height: "100vh",
+    background: "#ffffff",
+    display: "flex",
+    flexDirection: "column",
+    scrollbarWidth: "none",
+    msOverflowStyle: "none",
+  },
+  titleWrapper: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 8,
   },
   title: {
     fontSize: "28px",
@@ -487,10 +562,48 @@ const styles: Record<string, React.CSSProperties> = {
     fontStyle: "italic",
   },
   sessionCount: {
-    margin: "12px 0 0 0",
+    margin: "auto 0 0 0",
     fontSize: "12px",
     color: "#7c8397",
     textAlign: "center",
+  },
+  emptyState: {
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+    alignItems: "center",
+    height: "100%",
+    minHeight: "400px",
+    textAlign: "center",
+  },
+  emptyEmoji: {
+    fontSize: "64px",
+    marginBottom: "16px",
+    opacity: 0.6,
+  },
+  emptyTitle: {
+    fontSize: "18px",
+    fontWeight: "600",
+    color: "#1a1a2e",
+    margin: "0 0 8px 0",
+  },
+  emptyDesc: {
+    fontSize: "14px",
+    color: "#666666",
+    margin: 0,
+  },
+  shareButton: {
+    width: "100%",
+    padding: "14px",
+    borderRadius: "12px",
+    border: "2px solid #2563eb",
+    backgroundColor: "#ffffff",
+    color: "#2563eb",
+    fontSize: "14px",
+    fontWeight: "600",
+    cursor: "pointer",
+    transition: "all 0.2s ease",
+    marginTop: "16px",
   },
   realTimeBadge: {
     display: "inline-block",
