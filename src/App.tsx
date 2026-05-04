@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import axios from "axios";
-import { TrendingDown, TrendingUp, Calculator, BarChart3, Share2, Sparkles } from "lucide-react";
+import { TrendingDown, TrendingUp, Calculator, BarChart3, Share2, Sparkles, Download, X } from "lucide-react";
+import html2canvas from "html2canvas";
 
 type Result = {
   symbol: string;
@@ -130,28 +131,67 @@ const getRegretLevel = (returnRate: number): { level: string; Icon: React.Compon
   return { level: "明智之举", Icon: TrendingUp, color: "#2ed573" };
 };
 
-const getOpportunityHint = (diff: number) => {
+type OpportunityItem = {
+  label: string;
+  unit: string;
+  price: number;
+  prefix?: string;
+};
+
+const opportunityPool: OpportunityItem[] = [
+  { label: "杯奶茶", unit: "", price: 4.5 },
+  { label: "个汉堡", unit: "", price: 12 },
+  { label: "张电影票", unit: "", price: 80 },
+  { label: "台 iPhone", unit: "", price: 999 },
+  { label: "天马尔代夫", unit: "", price: 200 },
+  { label: "台 PS5", unit: "", price: 500 },
+  { label: "张国际机票", unit: "", price: 800 },
+  { label: "块 RTX 4090 显卡", unit: "", price: 14000 },
+  { label: "个月的工位费", unit: "", price: 2000, prefix: "给老板贡献" },
+  { label: "平米鹤岗房子", unit: "", price: 1000, prefix: "够你在鹤岗买" },
+  { label: "单县城首付", unit: "", price: 30000, prefix: "够付" },
+  { label: "年 B站大会员", unit: "", price: 148 },
+  { label: "把游戏皮肤", unit: "", price: 80 },
+  { label: "台 Switch", unit: "", price: 2000 },
+  { label: "年 Netflix", unit: "", price: 500 },
+  { label: "个月喜茶奶茶券", unit: "", price: 300 },
+  { label: "辆共享单车年卡", unit: "", price: 200 },
+  { label: "年 Spotify", unit: "", price: 192 },
+  { label: "台 AirPods Pro", unit: "", price: 1800 },
+  { label: "次健身房年卡", unit: "", price: 3000 },
+  { label: "部小米旗舰", unit: "", price: 4000 },
+  { label: "台 iPad", unit: "", price: 3000 },
+  { label: "年爱奇艺会员", unit: "", price: 200 },
+  { label: "套游戏大作", unit: "", price: 300 },
+  { label: "块 1TB 固态硬盘", unit: "", price: 600 },
+  { label: "台机械键盘", unit: "", price: 800 },
+  { label: "年 ChatGPT Plus", unit: "", price: 1500 },
+  { label: "台小米电视", unit: "", price: 1500 },
+];
+
+const getRandomOpportunityHint = (diff: number) => {
   const absDiff = Math.abs(diff);
-  const milkTea = Math.floor(absDiff / 4.5);
-  const burgers = Math.floor(absDiff / 12);
-  const tickets = Math.floor(absDiff / 80);
-  const iphones = Math.floor(absDiff / 999);
-  const maldivesDays = Math.floor(absDiff / 200);
-  const ps5 = Math.floor(absDiff / 500);
-  const flights = Math.floor(absDiff / 800);
-  return { milkTea, burgers, tickets, iphones, maldivesDays, ps5, flights };
+  const shuffled = [...opportunityPool].sort(() => Math.random() - 0.5);
+  const selected = shuffled.slice(0, 4);
+
+  return selected
+    .map(item => ({
+      ...item,
+      count: Math.floor(absDiff / item.price),
+    }))
+    .filter(item => item.count > 0);
 };
 
 export default function App() {
   const [symbol, setSymbol] = useState("AAPL");
   const [quantity, setQuantity] = useState(10);
   const [sellPrice, setSellPrice] = useState(100);
-  const [sellDate, setSellDate] = useState("");
-  const [useDateMode, setUseDateMode] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingText, setLoadingText] = useState(loadingMessages[0]);
   const [calcCount, setCalcCount] = useState(0);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const shareCardRef = useRef<HTMLDivElement>(null);
   
 
   const formatStockSymbol = (symbol: string): string => {
@@ -241,50 +281,13 @@ export default function App() {
     return { price: 0, isRealTime: false, currency, notFound: true };
   };
 
-  const fetchHistoricalPrice = async (stockSymbol: string, date: string): Promise<number | null> => {
-    try {
-      const timestamp = new Date(date).getTime() / 1000;
-      const formattedSymbol = formatStockSymbol(stockSymbol);
-      const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formattedSymbol}?region=US&lang=en-US&includePrePost=false&interval=1d&useYfid=true&range=max&corsDomain=finance.yahoo.com&.tsrc=finance`;
-      const corsProxyUrl = `https://corsproxy.io/?${encodeURIComponent(yahooUrl)}`;
-      const response = await axios.get(corsProxyUrl, { timeout: 15000 });
-      const timestamps = response.data.chart.result[0].timestamp;
-      const closes = response.data.chart.result[0].indicators.quote[0].close;
-      
-      let closestIdx = 0;
-      let minDiff = Math.abs(timestamps[0] - timestamp);
-      for (let i = 1; i < timestamps.length; i++) {
-        const diff = Math.abs(timestamps[i] - timestamp);
-        if (diff < minDiff) {
-          minDiff = diff;
-          closestIdx = i;
-        }
-      }
-      
-      return closes[closestIdx] || null;
-    } catch (error) {
-      console.log('Fetch historical price failed:', error);
-      return null;
-    }
-  };
-
   const handleCalculate = async () => {
+    setResult(null);
     setIsLoading(true);
     setLoadingText(loadingMessages[0]);
     
     let effectiveSellPrice = sellPrice;
-    
-    if (useDateMode && sellDate) {
-      const historicalPrice = await fetchHistoricalPrice(symbol, sellDate);
-      if (historicalPrice !== null) {
-        effectiveSellPrice = historicalPrice;
-      } else {
-        alert('无法获取该日期的历史价格，请检查股票代码或选择其他日期');
-        setIsLoading(false);
-        return;
-      }
-    }
-    
+
     const { price: currentPrice, isRealTime, open, high, low, close, name, currency, notFound } = await fetchCurrentPrice(symbol);
 
     if (notFound) {
@@ -293,7 +296,7 @@ export default function App() {
         stockName: undefined,
         currency: currency || (isChineseStock(symbol) ? '¥' : '$'),
         sellPrice: effectiveSellPrice,
-        sellDate: useDateMode ? sellDate : undefined,
+        sellDate: undefined,
         currentPrice: 0,
         currentValue: 0,
         sellValue: 0,
@@ -317,7 +320,7 @@ export default function App() {
       stockName: name,
       currency: currency || (isChineseStock(symbol) ? '¥' : '$'),
       sellPrice: effectiveSellPrice,
-      sellDate: useDateMode ? sellDate : undefined,
+      sellDate: undefined,
       currentPrice,
       currentValue,
       sellValue,
@@ -344,24 +347,33 @@ export default function App() {
   }, [isLoading]);
 
   const regretInfo = result ? getRegretLevel(result.returnRate) : null;
-  const opportunityHint = result ? getOpportunityHint(result.diff) : null;
+  const opportunityHint = useMemo(() => {
+    return result ? getRandomOpportunityHint(result.diff) : [];
+  }, [result]);
   const remark = useMemo(() => {
     if (!result) return "";
     return getRegretRemark(result.returnRate);
   }, [result]);
 
-  const handleShare = async (result: Result, regretInfo: ReturnType<typeof getRegretLevel>) => {
-    const trendIcon = regretInfo.Icon === TrendingUp ? "📈" : "📉";
-    const shareText = `【早知道就不卖了】\n\n${result.symbol} 复盘报告\n${trendIcon} ${regretInfo.level}\n\n卖出价: ${result.currency}${result.sellPrice}\n现价: ${result.currency}${result.currentPrice.toFixed(2)}\n差额: ${result.diff >= 0 ? "+" : ""}${result.currency}${result.diff.toFixed(2)}\n收益率: ${(result.returnRate * 100).toFixed(2)}%\n\n${remark}`;
-    
-    if (navigator.share) {
-      await navigator.share({
-        title: "早知道就不卖了",
-        text: shareText,
+  const handleShare = (result: Result, regretInfo: ReturnType<typeof getRegretLevel>) => {
+    setShareModalOpen(true);
+  };
+
+  const handleDownload = async () => {
+    if (!shareCardRef.current) return;
+    try {
+      const canvas = await html2canvas(shareCardRef.current, {
+        backgroundColor: "#ffffff",
+        scale: 2,
+        useCORS: true,
       });
-    } else {
-      navigator.clipboard.writeText(shareText);
-      alert("报告已复制到剪贴板！");
+      const link = document.createElement("a");
+      link.download = `早知道就不卖了_${result?.symbol || "report"}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    } catch (err) {
+      console.error("下载失败:", err);
+      alert("生成图片失败，请重试");
     }
   };
 
@@ -403,61 +415,17 @@ export default function App() {
           </div>
 
           <div style={styles.formGroup}>
-            <div style={styles.modeToggle}>
-              <button
-                onClick={() => {
-                  setUseDateMode(false);
-                }}
-                style={{
-                  ...styles.modeButton,
-                  backgroundColor: !useDateMode ? "#2563eb" : "#f1f5f9",
-                  color: !useDateMode ? "#fff" : "#64748b",
-                }}
-              >
-                输入价格
-              </button>
-              <button
-                onClick={() => {
-                  setUseDateMode(true);
-                }}
-                style={{
-                  ...styles.modeButton,
-                  backgroundColor: useDateMode ? "#2563eb" : "#f1f5f9",
-                  color: useDateMode ? "#fff" : "#64748b",
-                }}
-              >
-                选择日期
-              </button>
-            </div>
+            <label htmlFor="sell-price" style={styles.label}>卖出价格</label>
+            <input
+              id="sell-price"
+              type="number"
+              value={sellPrice}
+              onChange={(e) => setSellPrice(Math.max(0.01, Number(e.target.value)))}
+              style={styles.input}
+              min="0.01"
+              step="0.01"
+            />
           </div>
-
-          {!useDateMode ? (
-            <div style={styles.formGroup}>
-              <label htmlFor="sell-price" style={styles.label}>卖出价格</label>
-              <input
-                id="sell-price"
-                type="number"
-                value={sellPrice}
-                onChange={(e) => setSellPrice(Math.max(0.01, Number(e.target.value)))}
-                style={styles.input}
-                min="0.01"
-                step="0.01"
-              />
-            </div>
-          ) : (
-            <div style={styles.formGroup}>
-              <label htmlFor="sell-date" style={styles.label}>卖出日期</label>
-              <input
-                id="sell-date"
-                type="date"
-                value={sellDate}
-                onChange={(e) => setSellDate(e.target.value)}
-                style={styles.input}
-                max={new Date().toISOString().split('T')[0]}
-              />
-              <p style={styles.smallHint}>选择卖出日期，系统将自动获取当天收盘价</p>
-            </div>
-          )}
 
           <button
             onClick={handleCalculate}
@@ -588,48 +556,12 @@ export default function App() {
               </div>
 
               <div style={styles.funStats}>
-                {opportunityHint && opportunityHint.milkTea > 0 && (
-                  <div style={styles.funStatItem}>
-                    <span style={styles.funStatLabel}>相当于错失了</span>
-                    <span style={styles.funStatValue}>{opportunityHint.milkTea} 杯奶茶</span>
+                {opportunityHint.map((item, idx) => (
+                  <div key={idx} style={styles.funStatItem}>
+                    <span style={styles.funStatLabel}>{item.prefix || "相当于错失了"}</span>
+                    <span style={styles.funStatValue}>{item.count} {item.label}</span>
                   </div>
-                )}
-                {opportunityHint && opportunityHint.burgers > 0 && (
-                  <div style={styles.funStatItem}>
-                    <span style={styles.funStatLabel}>相当于错失了</span>
-                    <span style={styles.funStatValue}>{opportunityHint.burgers} 个汉堡</span>
-                  </div>
-                )}
-                {opportunityHint && opportunityHint.tickets > 0 && (
-                  <div style={styles.funStatItem}>
-                    <span style={styles.funStatLabel}>相当于错失了</span>
-                    <span style={styles.funStatValue}>{opportunityHint.tickets} 张电影票</span>
-                  </div>
-                )}
-                {opportunityHint && opportunityHint.iphones > 0 && (
-                  <div style={styles.funStatItem}>
-                    <span style={styles.funStatLabel}>相当于错失了</span>
-                    <span style={styles.funStatValue}>{opportunityHint.iphones} 台 iPhone</span>
-                  </div>
-                )}
-                {opportunityHint && opportunityHint.maldivesDays > 0 && (
-                  <div style={styles.funStatItem}>
-                    <span style={styles.funStatLabel}>这笔钱够你在</span>
-                    <span style={styles.funStatValue}>马尔代夫躺 {opportunityHint.maldivesDays} 天</span>
-                  </div>
-                )}
-                {opportunityHint && opportunityHint.ps5 > 0 && (
-                  <div style={styles.funStatItem}>
-                    <span style={styles.funStatLabel}>相当于错失了</span>
-                    <span style={styles.funStatValue}>{opportunityHint.ps5} 台 PS5</span>
-                  </div>
-                )}
-                {opportunityHint && opportunityHint.flights > 0 && (
-                  <div style={styles.funStatItem}>
-                    <span style={styles.funStatLabel}>相当于错失了</span>
-                    <span style={styles.funStatValue}>{opportunityHint.flights} 张国际机票</span>
-                  </div>
-                )}
+                ))}
               </div>
 
               <p style={styles.emotionText}>
@@ -646,7 +578,7 @@ export default function App() {
             >
               <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
                 <Share2 style={{ width: 16, height: 16 }} />
-                分享报告
+                生成分享图
               </span>
             </button>
             </div>
@@ -659,7 +591,78 @@ export default function App() {
           )}
         </div>
       </div>
-      
+
+      {shareModalOpen && result && (
+        <div style={shareStyles.overlay} onClick={() => setShareModalOpen(false)}>
+          <div style={shareStyles.modalContainer} onClick={(e) => e.stopPropagation()}>
+            <div style={shareStyles.header}>
+              <h3 style={shareStyles.title}>分享图片预览</h3>
+              <button style={shareStyles.closeBtn} onClick={() => setShareModalOpen(false)}>
+                <X size={20} />
+              </button>
+            </div>
+            <div style={shareStyles.previewArea}>
+              <div ref={shareCardRef} style={shareStyles.shareCard}>
+                <div style={shareStyles.cardHeader}>
+                  <div style={shareStyles.headerLeft}>
+                    <TrendingDown size={20} color="#ef4444" />
+                    <span style={shareStyles.appName}>早知道就不卖了</span>
+                  </div>
+                  <span style={shareStyles.headerSub}>If I Held</span>
+                </div>
+
+                <div style={shareStyles.stockSection}>
+                  <div style={shareStyles.stockMain}>
+                    <span style={shareStyles.stockSymbol}>{result.symbol}</span>
+                    {result.stockName && <span style={shareStyles.stockName}>{result.stockName}</span>}
+                  </div>
+                  <div style={{...shareStyles.regretBadge, backgroundColor: regretInfo?.color + "20", color: regretInfo?.color}}>
+                    {regretInfo?.Icon && <regretInfo.Icon size={16} />}
+                    <span style={{fontWeight: "600", marginLeft: 4}}>{regretInfo?.level}</span>
+                  </div>
+                </div>
+
+                <div style={shareStyles.priceRow}>
+                  <div style={shareStyles.priceItem}>
+                    <span style={shareStyles.priceLabel}>卖出价</span>
+                    <span style={shareStyles.priceValue}>{result.currency}{result.sellPrice.toFixed(2)}</span>
+                  </div>
+                  <div style={shareStyles.priceItem}>
+                    <span style={shareStyles.priceLabel}>现价</span>
+                    <span style={shareStyles.priceValue}>{result.currency}{result.currentPrice.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div style={shareStyles.diffSection}>
+                  <span style={shareStyles.diffLabel}>差额</span>
+                  <span style={{...shareStyles.diffValue, color: regretInfo?.color}}>
+                    {result.diff >= 0 ? "+" : ""}{result.currency}{result.diff.toFixed(2)}
+                  </span>
+                  <span style={{...shareStyles.returnRate, color: regretInfo?.color}}>
+                    {(result.returnRate * 100).toFixed(2)}%
+                  </span>
+                </div>
+
+                <div style={shareStyles.remarkSection}>
+                  <span style={{...shareStyles.remarkText, color: regretInfo?.color}}>{remark}</span>
+                </div>
+
+                <div style={shareStyles.footer}>
+                  <span style={shareStyles.footerText}>仅供娱乐，不构成投资建议</span>
+                </div>
+              </div>
+            </div>
+
+            <div style={shareStyles.actions}>
+              <button style={shareStyles.downloadBtn} onClick={handleDownload}>
+                <Download size={18} />
+                下载图片
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <footer style={{ 
         textAlign: "center", 
         padding: "12px", 
@@ -803,23 +806,6 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "pointer",
     boxShadow: "3px 3px 0 #006994",
     boxSizing: "border-box",
-  },
-  modeToggle: {
-    display: "flex",
-    gap: "8px",
-  },
-  modeButton: {
-    flex: 1,
-    padding: "14px",
-    borderRadius: "0",
-    border: "3px solid #1E90FF",
-    fontSize: "14px",
-    fontWeight: "bold",
-    cursor: "pointer",
-    textTransform: "uppercase",
-    letterSpacing: "1px",
-    boxShadow: "3px 3px 0 #006994",
-    transition: "transform 0.1s ease",
   },
   button: {
     width: "100%",
@@ -1092,5 +1078,205 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "12px",
     fontWeight: "500",
     marginLeft: "8px",
+  },
+};
+
+const shareStyles: Record<string, React.CSSProperties> = {
+  overlay: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 1000,
+  },
+  modalContainer: {
+    backgroundColor: "#ffffff",
+    borderRadius: "0",
+    padding: "24px",
+    maxWidth: "420px",
+    width: "90%",
+    maxHeight: "90vh",
+    overflow: "auto",
+    boxShadow: "0 20px 60px rgba(0, 0, 0, 0.3)",
+  },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "20px",
+  },
+  title: {
+    fontSize: "18px",
+    fontWeight: "bold",
+    color: "#1a1a2e",
+    margin: 0,
+  },
+  closeBtn: {
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    padding: "8px",
+    borderRadius: "0",
+    color: "#666",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  previewArea: {
+    display: "flex",
+    justifyContent: "center",
+    marginBottom: "20px",
+  },
+  shareCard: {
+    width: "320px",
+    backgroundColor: "#ffffff",
+    borderRadius: "0",
+    padding: "24px",
+    boxShadow: "0 4px 20px rgba(0, 0, 0, 0.1)",
+    border: "2px solid #1E90FF",
+  },
+  cardHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "20px",
+    paddingBottom: "12px",
+    borderBottom: "2px dashed #e5e7eb",
+  },
+  headerLeft: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+  },
+  appName: {
+    fontSize: "16px",
+    fontWeight: "bold",
+    color: "#1E90FF",
+  },
+  headerSub: {
+    fontSize: "11px",
+    color: "#9ca3af",
+    textTransform: "uppercase",
+    letterSpacing: "1px",
+  },
+  stockSection: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "16px",
+  },
+  stockMain: {
+    display: "flex",
+    flexDirection: "column",
+  },
+  stockSymbol: {
+    fontSize: "24px",
+    fontWeight: "bold",
+    color: "#1a1a2e",
+  },
+  stockName: {
+    fontSize: "13px",
+    color: "#666",
+    marginTop: "2px",
+  },
+  regretBadge: {
+    display: "flex",
+    alignItems: "center",
+    padding: "6px 12px",
+    borderRadius: "0",
+    fontSize: "13px",
+  },
+  priceRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    marginBottom: "16px",
+    backgroundColor: "#f8fafc",
+    borderRadius: "0",
+    padding: "16px",
+  },
+  priceItem: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+  },
+  priceLabel: {
+    fontSize: "12px",
+    color: "#666",
+    marginBottom: "4px",
+  },
+  priceValue: {
+    fontSize: "18px",
+    fontWeight: "bold",
+    color: "#1a1a2e",
+  },
+  diffSection: {
+    textAlign: "center",
+    padding: "20px",
+    backgroundColor: "#E0F4FF",
+    borderRadius: "0",
+    marginBottom: "16px",
+    border: "2px solid #1E90FF",
+  },
+  diffLabel: {
+    fontSize: "12px",
+    color: "#666",
+    marginBottom: "8px",
+    display: "block",
+  },
+  diffValue: {
+    fontSize: "32px",
+    fontWeight: "bold",
+  },
+  returnRate: {
+    fontSize: "16px",
+    fontWeight: "600",
+    marginTop: "4px",
+    display: "block",
+  },
+  remarkSection: {
+    textAlign: "center",
+    padding: "12px",
+    backgroundColor: "#f8fafc",
+    borderRadius: "0",
+    marginBottom: "16px",
+  },
+  remarkText: {
+    fontSize: "13px",
+    fontWeight: "500",
+    lineHeight: 1.5,
+  },
+  footer: {
+    textAlign: "center",
+    paddingTop: "12px",
+    borderTop: "1px dashed #e5e7eb",
+  },
+  footerText: {
+    fontSize: "11px",
+    color: "#9ca3af",
+  },
+  actions: {
+    display: "flex",
+    gap: "12px",
+  },
+  downloadBtn: {
+    flex: 1,
+    padding: "14px 20px",
+    borderRadius: "0",
+    border: "none",
+    backgroundColor: "#1E90FF",
+    color: "#ffffff",
+    fontSize: "14px",
+    fontWeight: "600",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    transition: "all 0.2s ease",
   },
 };
